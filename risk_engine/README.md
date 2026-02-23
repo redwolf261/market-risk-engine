@@ -1,136 +1,116 @@
 # Monte Carlo Market Risk Engine
 
-**Production-grade 1-day trading desk risk model** implementing correlated Monte Carlo simulation, multi-model VaR estimation, Expected Shortfall, rolling-window backtesting, and volatility shock stress testing.
+> A production-grade **1-day market risk model** that estimates portfolio loss distributions using Monte Carlo simulation, validates predictions through backtesting, and stress-tests under extreme scenarios.
+
+Built from scratch in Python — no black-box libraries. Every risk metric is derived from first principles.
+
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Simulations](https://img.shields.io/badge/Monte%20Carlo-100%2C000%20paths-orange)
 
 ---
 
-## Table of Contents
+## What This Project Does
 
-1. [Project Overview](#project-overview)
-2. [Mathematical Framework](#mathematical-framework)
-3. [Risk Models Implemented](#risk-models-implemented)
-4. [Backtesting Framework](#backtesting-framework)
-5. [Stress Testing](#stress-testing)
-6. [Project Structure](#project-structure)
-7. [Installation & Usage](#installation--usage)
-8. [Key Results](#key-results)
-9. [Limitations](#limitations)
-10. [Future Improvements](#future-improvements)
+This engine answers the fundamental question in market risk:
 
----
+> **"What is the maximum loss this portfolio could suffer tomorrow, with 99% confidence?"**
 
-## Project Overview
+It calculates this using three independent methods, cross-validates them via backtesting, and measures how risk escalates under market stress.
 
-This engine estimates the **1-day loss distribution** of a multi-asset portfolio using three complementary VaR methodologies, validated through rolling-window backtesting and stress-tested under extreme market scenarios.
+### Quick Results
 
-### Portfolio Composition
+| Model | 95% VaR | 99% VaR | 99% Expected Shortfall |
+|-------|---------|---------|------------------------|
+| Historical Simulation | 1.17% | 1.99% | 2.63% |
+| Parametric (Gaussian) | 1.20% | 1.72% | 1.98% |
+| **Monte Carlo** | **1.20%** | **1.73%** | **1.96%** |
 
-| Asset | Ticker | Weight | Role |
-|-------|--------|--------|------|
-| S&P 500 ETF | SPY | 30% | Broad equity exposure |
-| Nasdaq 100 ETF | QQQ | 20% | High-beta technology |
-| JPMorgan Chase | JPM | 15% | Financial sector |
-| 20+ Year Treasury | TLT | 20% | Duration / rate exposure |
-| Gold ETF | GLD | 15% | Safe-haven hedge |
-
-Cross-asset covariance structure is central to accurate risk estimation. The portfolio spans equity, fixed income, and commodities to capture meaningful correlation dynamics.
+**Translation:** Under normal conditions, the portfolio's worst daily loss should stay below **1.73%** on 99 out of 100 trading days. When losses do exceed that threshold, the average loss is roughly **1.96%** (Expected Shortfall).
 
 ---
 
-## Mathematical Framework
+## Portfolio
 
-### Log Returns
+Five assets chosen to span asset classes — equities, fixed income, and commodities — so that cross-asset correlation effects are captured:
 
-$$r_t = \ln\left(\frac{P_t}{P_{t-1}}\right)$$
+| Asset | Ticker | Weight | Why |
+|-------|--------|--------|-----|
+| S&P 500 ETF | SPY | 30% | Broad U.S. equity market |
+| Nasdaq 100 ETF | QQQ | 20% | High-beta technology exposure |
+| JPMorgan Chase | JPM | 15% | Financial sector, rate-sensitive |
+| 20+ Year Treasury ETF | TLT | 20% | Long-duration bonds, equity hedge |
+| Gold ETF | GLD | 15% | Safe-haven, inflation hedge |
 
-### Portfolio Return
+**Data:** 5 years of daily prices (2021–2025), ~1,254 trading days.
 
-$$R_p = \mathbf{w}^T \mathbf{R}$$
+---
 
-### Covariance Matrix
+## How It Works
 
-$$\Sigma = E\left[(\mathbf{r} - \boldsymbol{\mu})(\mathbf{r} - \boldsymbol{\mu})^T\right]$$
+### Step 1 — Statistical Estimation
 
-### Portfolio Variance
+From historical daily prices, compute:
 
-$$\sigma_p^2 = \mathbf{w}^T \Sigma \mathbf{w}$$
+- **Log returns** for each asset: $r_t = \ln(P_t / P_{t-1})$
+- **Mean return vector** $\boldsymbol{\mu}$ — expected daily return per asset
+- **Covariance matrix** $\Sigma$ — captures how assets move together
+- **Portfolio variance** $\sigma_p^2 = \mathbf{w}^T \Sigma \mathbf{w}$
 
-### Cholesky Decomposition (Monte Carlo Core)
+### Step 2 — Three VaR Models
 
-$$\Sigma = \mathbf{L}\mathbf{L}^T$$
+**1. Historical Simulation** — Sort actual past portfolio losses, pick the 1st percentile. No assumptions about the shape of the distribution.
 
-Correlated simulation:
+**2. Parametric VaR** — Assume returns follow a normal (Gaussian) distribution:
 
-$$\mathbf{R} = \boldsymbol{\mu} + \mathbf{L}\mathbf{Z}, \quad \mathbf{Z} \sim N(\mathbf{0}, \mathbf{I})$$
-
-### Value-at-Risk
-
-**Parametric:**
 $$\text{VaR}_\alpha = z_\alpha \cdot \sigma_p - \mu_p$$
 
-**Monte Carlo / Historical:**
-$$\text{VaR}_\alpha = -Q_\alpha(R_p)$$
+Fast to compute, but underestimates extreme events because real markets have fat tails.
 
-### Expected Shortfall
+**3. Monte Carlo Simulation** (flagship) — The most flexible approach:
+1. **Cholesky decomposition:** Factor the covariance matrix as $\Sigma = \mathbf{L}\mathbf{L}^T$
+2. **Generate random draws:** $\mathbf{Z} \sim N(\mathbf{0}, \mathbf{I})$ — 100,000 independent standard normal vectors
+3. **Correlate them:** $\mathbf{R} = \boldsymbol{\mu} + \mathbf{L}\mathbf{Z}$ — now the simulated returns have the same correlation structure as the real data
+4. **Aggregate to portfolio:** $R_p = \mathbf{w}^T \mathbf{R}$ — weighted sum gives 100,000 possible portfolio outcomes
+5. **Extract risk metrics:** VaR = 1st percentile loss; ES = average of losses beyond VaR
 
-$$\text{ES}_\alpha = E\left[L \mid L > \text{VaR}_\alpha\right]$$
+### Step 3 — Backtesting
 
----
+How do we know if the VaR model actually works?
 
-## Risk Models Implemented
+- Use a **rolling 250-day window** (≈ 1 year)
+- At each day, estimate VaR using only past data, then check if the next day's actual loss exceeded the prediction
+- Count **breaches** — days where actual loss > predicted VaR
+- At 99% confidence, expect ~1% breach rate
 
-### 1. Historical Simulation
-- Distribution-free approach
-- Directly uses empirical quantiles of realized portfolio losses
-- **Strength:** No distributional assumptions
-- **Weakness:** Backward-looking, limited by sample size
+**Our results:** 26 breaches out of 1,004 test days (2.6% breach rate vs 1% expected). The **Kupiec test** formally rejects the model (p < 0.001), suggesting the parametric VaR underestimates tail risk — a known limitation of the Gaussian assumption.
 
-### 2. Parametric (Variance-Covariance)
-- Assumes Gaussian returns
-- Analytically computes VaR from portfolio mean and standard deviation
-- **Strength:** Computationally efficient
-- **Weakness:** Underestimates tail risk due to normality assumption
+### Step 4 — Stress Testing
 
-### 3. Monte Carlo Simulation (Flagship)
-- 100,000 correlated return paths via Cholesky decomposition
-- Full portfolio P&L distribution
-- **Strength:** Flexible, captures non-linear dependencies
-- **Weakness:** Computationally intensive, dependent on input distribution
+What happens if markets go haywire?
 
----
+| Scenario | What Changes | 99% VaR Impact | 99% ES Impact |
+|----------|-------------|----------------|---------------|
+| **Volatility Doubling** | $\Sigma_{\text{shock}} = 2\Sigma$ | +43% | +42% |
+| **Correlation Collapse** | All $\rho_{ij} \to 0.9$ | +50% | +52% |
 
-## Backtesting Framework
-
-Rolling-window approach with 250-day estimation window:
-
-1. Estimate μ and Σ from trailing 250 trading days
-2. Compute 1-day 99% Parametric VaR forecast
-3. Compare prediction to actual realized loss at t+1
-4. Record breach (actual loss > predicted VaR)
-
-### Kupiec Proportion of Failures Test
-
-Likelihood ratio statistic:
-
-$$LR = -2\ln\left[\frac{(1-p)^{T-x} \cdot p^x}{(1-\hat{p})^{T-x} \cdot \hat{p}^x}\right]$$
-
-Under $H_0$: $LR \sim \chi^2(1)$
-
-Where $p = 1 - \alpha$ is the expected failure rate and $\hat{p} = x/T$ is the observed rate.
+The correlation stress scenario is more severe — when all assets start moving together, diversification evaporates and tail risk amplifies by over 50%.
 
 ---
 
-## Stress Testing
+## Visualizations
 
-### Volatility Shock
-$$\Sigma_{\text{shock}} = 2\Sigma$$
+The engine generates 5 publication-quality charts:
 
-Equivalent to doubling all asset volatilities. Re-runs full Monte Carlo engine to measure VaR/ES sensitivity.
+| Figure | What It Shows |
+|--------|---------------|
+| `mc_pnl_distribution.png` | Full histogram of 100K simulated daily returns with VaR/ES lines |
+| `left_tail_zoom.png` | Close-up of the loss tail — where risk lives |
+| `rolling_var_backtest.png` | 99% VaR forecast overlaid on actual daily losses, breaches highlighted in red |
+| `correlation_heatmap.png` | Cross-asset correlation structure |
+| `stress_comparison.png` | Side-by-side bar chart: baseline vs vol-shock vs correlation-stress |
 
-### Correlation Stress
-$$\rho_{ij} \rightarrow 0.9 \quad \forall \, i \neq j$$
-
-Simulates diversification collapse under systemic crisis. Reconstructs covariance from stressed correlation matrix.
+All saved to `results/figures/`.
 
 ---
 
@@ -140,113 +120,151 @@ Simulates diversification collapse under systemic crisis. Reconstructs covarianc
 risk_engine/
 │
 ├── data/
-│   └── raw_prices.csv          # Historical price data
+│   └── raw_prices.csv              # Downloaded price data (auto-generated)
 │
 ├── src/
-│   ├── __init__.py
-│   ├── portfolio.py             # Data loading, returns, weights
-│   ├── statistics.py            # μ, Σ, ρ estimation
-│   ├── monte_carlo.py           # Cholesky MC simulation engine
-│   ├── risk_metrics.py          # Historical & Parametric VaR/ES
-│   ├── backtesting.py           # Rolling VaR backtest + Kupiec
-│   ├── stress_testing.py        # Vol shock & correlation stress
-│   └── visualization.py         # Professional chart generation
+│   ├── portfolio.py                # Data loading, log returns, weight management
+│   ├── statistics.py               # Mean, covariance, correlation estimation
+│   ├── monte_carlo.py              # Cholesky MC engine (100K simulations)
+│   ├── risk_metrics.py             # Historical & Parametric VaR/ES
+│   ├── backtesting.py              # Rolling-window backtest + Kupiec test
+│   ├── stress_testing.py           # Vol shock + correlation stress
+│   └── visualization.py            # All chart generation
 │
 ├── notebooks/
-│   └── report.ipynb             # Full analysis report
+│   └── report.ipynb                # Interactive analysis report
 │
 ├── results/
-│   ├── figures/                 # Generated visualizations
-│   └── tables/                  # CSV/JSON output
+│   ├── figures/                    # Generated charts (PNG)
+│   └── tables/                     # CSV & JSON outputs
 │
-├── main.py                      # Pipeline orchestrator
+├── main.py                         # Run everything in one command
 ├── requirements.txt
-├── .gitignore
 └── README.md
 ```
 
+All logic lives in `src/`. The notebook only imports and visualizes. `main.py` orchestrates the full pipeline.
+
 ---
 
-## Installation & Usage
+## Getting Started
 
 ### Prerequisites
-- Python 3.9+
 
-### Setup
+- Python 3.9 or higher
+- Internet connection (first run downloads price data from Yahoo Finance)
+
+### Install & Run
 
 ```bash
+# Clone the repository
 git clone https://github.com/redwolf261/market-risk-engine.git
 cd market-risk-engine/risk_engine
+
+# Install dependencies
 pip install -r requirements.txt
-```
 
-### Run
-
-```bash
+# Run the full pipeline
 python main.py
 ```
 
-The engine will:
-1. Fetch historical data (or load from cache)
-2. Run all three VaR models
-3. Execute backtesting pipeline
-4. Perform stress analysis
-5. Generate visualizations in `results/figures/`
-6. Export results to `results/tables/`
+**What happens when you run it:**
+1. Downloads 5 years of price data (or loads from cache)
+2. Computes statistical estimates (mean, covariance, correlation)
+3. Runs Historical, Parametric, and Monte Carlo VaR
+4. Executes rolling 250-day backtest with Kupiec test
+5. Performs volatility shock and correlation stress tests
+6. Generates all visualizations → `results/figures/`
+7. Exports numerical results → `results/tables/`
+
+### Interactive Report
+
+Open the Jupyter notebook for a step-by-step walkthrough:
+
+```bash
+cd notebooks
+jupyter notebook report.ipynb
+```
 
 ---
 
-## Key Results
+## Mathematical Framework
 
-Results are generated dynamically. After running `main.py`, see:
+<details>
+<summary>Click to expand full mathematical details</summary>
 
-- **Comparison table:** `results/tables/risk_metrics_comparison.csv`
-- **Full output:** `results/tables/full_results.json`
-- **Visualizations:** `results/figures/`
+### Log Returns
+$$r_t = \ln\left(\frac{P_t}{P_{t-1}}\right)$$
 
-### Output Figures
+### Portfolio Return
+$$R_p = \mathbf{w}^T \mathbf{R}$$
 
-| Figure | Description |
-|--------|-------------|
-| `mc_pnl_distribution.png` | Full Monte Carlo P&L histogram with VaR/ES lines |
-| `left_tail_zoom.png` | Zoomed view of the loss tail |
-| `rolling_var_backtest.png` | 99% VaR forecast vs actual losses with breach markers |
-| `correlation_heatmap.png` | Cross-asset correlation structure |
-| `stress_comparison.png` | Bar chart comparing base vs stressed risk metrics |
+### Covariance Matrix
+$$\Sigma = E\left[(\mathbf{r} - \boldsymbol{\mu})(\mathbf{r} - \boldsymbol{\mu})^T\right]$$
+
+### Portfolio Variance
+$$\sigma_p^2 = \mathbf{w}^T \Sigma \mathbf{w}$$
+
+### Cholesky Decomposition
+$$\Sigma = \mathbf{L}\mathbf{L}^T$$
+
+### Correlated Simulation
+$$\mathbf{R} = \boldsymbol{\mu} + \mathbf{L}\mathbf{Z}, \quad \mathbf{Z} \sim N(\mathbf{0}, \mathbf{I})$$
+
+### Parametric VaR
+$$\text{VaR}_\alpha = z_\alpha \cdot \sigma_p - \mu_p$$
+
+### Expected Shortfall
+$$\text{ES}_\alpha = E\left[L \mid L > \text{VaR}_\alpha\right]$$
+
+### Kupiec Test Statistic
+$$LR = -2\ln\left[\frac{(1-p)^{T-x} \cdot p^x}{(1-\hat{p})^{T-x} \cdot \hat{p}^x}\right] \sim \chi^2(1)$$
+
+</details>
 
 ---
 
-## Limitations
+## Known Limitations
 
-1. **Gaussian assumption** — Parametric and MC models assume normal returns, which underestimates tail risk. Real asset returns exhibit fat tails and skewness.
+| Limitation | Why It Matters |
+|-----------|----------------|
+| **Gaussian returns** | Real markets have fat tails and skewness — VaR underestimates extreme losses |
+| **Static covariance** | Correlations change over time, especially spiking during crises |
+| **No liquidity modeling** | Assumes you can sell everything at current market prices instantly |
+| **No regime switching** | Doesn't distinguish between calm and volatile market regimes |
+| **Single-day horizon** | Only models 1-day risk; multi-day requires different assumptions |
 
-2. **Static correlation** — Covariance is estimated from a fixed historical window. In reality, correlations spike during market stress (correlation breakdown).
-
-3. **No liquidity effects** — VaR assumes positions can be liquidated at market prices. During crises, bid-ask spreads widen and market depth evaporates.
-
-4. **No regime switching** — Volatility clustering and mean reversion are not modeled. A GARCH or regime-switching framework would better capture time-varying dynamics.
-
-5. **Linear portfolio** — No options, derivatives, or non-linear instruments. VaR for non-linear portfolios requires delta-gamma or full revaluation approaches.
-
-6. **Single-period horizon** — Only considers 1-day risk. Multi-day VaR scaling by √t assumes i.i.d. returns, which is violated in practice.
+These are acknowledged limitations, not flaws — they represent the standard trade-offs in desk-level risk models. The backtesting results confirm that the Gaussian assumption specifically leads to VaR underestimation.
 
 ---
 
 ## Future Improvements
 
-- [ ] **Student-t Monte Carlo** — Replace Gaussian with heavy-tailed distribution to better capture extreme losses
-- [ ] **GARCH volatility** — Time-varying conditional volatility for more responsive risk estimates
-- [ ] **Regime-switching model** — Hidden Markov Model for bull/bear market detection
-- [ ] **Cornish-Fisher VaR** — Adjust parametric VaR for skewness and kurtosis
-- [ ] **Incremental VaR** — Decompose risk contributions by asset
-- [ ] **Liquidity-adjusted VaR** — Incorporate bid-ask spread and market impact
+- **Student-t Monte Carlo** — Heavy-tailed distributions for better tail risk capture
+- **GARCH volatility** — Time-varying conditional volatility
+- **Regime-switching model** — Bull/bear market detection via Hidden Markov Models
+- **Incremental VaR** — Decompose risk contribution by asset
+- **Cornish-Fisher adjustment** — Correct parametric VaR for skewness/kurtosis
+
+---
+
+## What This Demonstrates
+
+| Skill | Evidence |
+|-------|----------|
+| Linear algebra | Cholesky decomposition, portfolio variance via matrix multiplication |
+| Probability theory | VaR quantiles, Expected Shortfall, distributional assumptions |
+| Statistical estimation | Covariance matrices, mean estimation, rolling windows |
+| Model validation | Backtesting framework, Kupiec test, breach analysis |
+| Stress testing | Volatility shocks, correlation stress, sensitivity interpretation |
+| Software engineering | Modular architecture, type hints, documented functions |
 
 ---
 
 ## License
 
-MIT License
+MIT License — use freely.
 
 ---
 
-*Built as a quantitative risk analysis project demonstrating proficiency in probability theory, linear algebra, statistical estimation, and model validation — aligned with trading desk market risk methodologies.*
+*Built by [Rivan Avinash Shetty](https://github.com/redwolf261) as a quantitative risk analysis project aligned with trading desk market risk methodologies.*

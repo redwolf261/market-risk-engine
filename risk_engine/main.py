@@ -225,8 +225,14 @@ def main() -> None:
     )
     print(f"  ✓ {p4}")
 
+    base_for_chart = {
+        "var_95": mc_results["var_95"],
+        "var_99": mc_results["var_99"],
+        "es_95": mc_results["es_95"],
+        "es_99": mc_results["es_99"],
+    }
     p5 = plot_stress_comparison(
-        mc_metrics,
+        base_for_chart,
         {
             "var_95": stress_results["vol_shock"]["results"]["var_95"],
             "var_99": stress_results["vol_shock"]["results"]["var_99"],

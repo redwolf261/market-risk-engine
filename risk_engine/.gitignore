@@ -30,8 +30,4 @@ Thumbs.db
 # Data (large files)
 # data/raw_prices.csv  # Uncomment if data is too large for repo
 
-# Results cache
-results/figures/*.png
-results/tables/*.csv
-!results/figures/.gitkeep
-!results/tables/.gitkeep
+# Results cache (keeping generated outputs for reproducibility)
