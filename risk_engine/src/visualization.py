@@ -321,3 +321,98 @@ def plot_stress_comparison(
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
 
     return save_figure(fig, "stress_comparison", output_dir)
+
+
+def plot_gaussian_vs_student_t(
+    gaussian_pnl: np.ndarray,
+    student_t_pnl: np.ndarray,
+    gaussian_var99: float,
+    student_t_var99: float,
+    gaussian_es99: float,
+    student_t_es99: float,
+    df: float,
+    output_dir: str = "results/figures",
+) -> str:
+    """
+    Overlay Gaussian and Student-t MC P&L distributions.
+
+    Highlights the heavier tails produced by Student-t innovations.
+
+    Parameters
+    ----------
+    gaussian_pnl : np.ndarray
+        Gaussian MC simulated portfolio P&L.
+    student_t_pnl : np.ndarray
+        Student-t MC simulated portfolio P&L.
+    gaussian_var99 : float
+        99% VaR from Gaussian MC (positive number).
+    student_t_var99 : float
+        99% VaR from Student-t MC (positive number).
+    gaussian_es99 : float
+        99% ES from Gaussian MC (positive number).
+    student_t_es99 : float
+        99% ES from Student-t MC (positive number).
+    df : float
+        Fitted degrees of freedom for the Student-t.
+    output_dir : str
+        Output directory for figure.
+
+    Returns
+    -------
+    str
+        Path to saved figure.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+
+    # ── Left panel: Full distribution overlay ─────────────────
+    ax = axes[0]
+    ax.hist(gaussian_pnl, bins=250, density=True, alpha=0.55,
+            color=COLORS["primary"], edgecolor="none", label="Gaussian MC")
+    ax.hist(student_t_pnl, bins=250, density=True, alpha=0.55,
+            color=COLORS["var_99"], edgecolor="none",
+            label=f"Student-t MC (ν={df:.1f})")
+
+    ax.axvline(-gaussian_var99, color=COLORS["primary"], linewidth=2,
+               linestyle="--", label=f"Gauss 99% VaR = {gaussian_var99:.4f}")
+    ax.axvline(-student_t_var99, color=COLORS["var_99"], linewidth=2,
+               linestyle="--", label=f"t 99% VaR = {student_t_var99:.4f}")
+
+    ax.set_xlabel("Portfolio Return", fontsize=12)
+    ax.set_ylabel("Density", fontsize=12)
+    ax.set_title("Full P&L Distribution — Gaussian vs Student-t",
+                 fontsize=13, fontweight="bold")
+    ax.legend(fontsize=9.5, loc="upper right")
+    ax.xaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+
+    # ── Right panel: Left-tail zoom ───────────────────────────
+    ax2 = axes[1]
+    tail_cut = min(np.percentile(gaussian_pnl, 5),
+                   np.percentile(student_t_pnl, 5))
+    g_tail = gaussian_pnl[gaussian_pnl <= tail_cut]
+    t_tail = student_t_pnl[student_t_pnl <= tail_cut]
+
+    ax2.hist(g_tail, bins=120, density=True, alpha=0.55,
+             color=COLORS["primary"], edgecolor="none", label="Gaussian MC")
+    ax2.hist(t_tail, bins=120, density=True, alpha=0.55,
+             color=COLORS["var_99"], edgecolor="none",
+             label=f"Student-t MC (ν={df:.1f})")
+
+    ax2.axvline(-gaussian_es99, color=COLORS["primary"], linewidth=2,
+                linestyle=":", label=f"Gauss 99% ES = {gaussian_es99:.4f}")
+    ax2.axvline(-student_t_es99, color=COLORS["var_99"], linewidth=2,
+                linestyle=":", label=f"t 99% ES = {student_t_es99:.4f}")
+
+    ax2.set_xlabel("Portfolio Return", fontsize=12)
+    ax2.set_ylabel("Density", fontsize=12)
+    ax2.set_title("Left-Tail Zoom — Fat-Tail Effect",
+                  fontsize=13, fontweight="bold")
+    ax2.legend(fontsize=9.5, loc="upper left")
+    ax2.xaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+
+    fig.suptitle(
+        "Gaussian vs Student-t Monte Carlo — Impact of Heavy Tails on Risk Estimates",
+        fontsize=14, fontweight="bold", y=1.02,
+    )
+    fig.tight_layout()
+
+    return save_figure(fig, "gaussian_vs_student_t", output_dir)

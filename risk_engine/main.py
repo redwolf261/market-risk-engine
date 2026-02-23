@@ -52,12 +52,17 @@ from src.risk_metrics import (
 from src.monte_carlo import run_monte_carlo_engine
 from src.backtesting import run_full_backtest
 from src.stress_testing import full_stress_analysis
+from src.student_t_mc import (
+    fit_degrees_of_freedom,
+    run_student_t_mc_engine,
+)
 from src.visualization import (
     plot_pnl_distribution,
     plot_left_tail_zoom,
     plot_rolling_var_vs_losses,
     plot_correlation_heatmap,
     plot_stress_comparison,
+    plot_gaussian_vs_student_t,
 )
 
 warnings.filterwarnings("ignore")
@@ -171,6 +176,28 @@ def main() -> None:
     }
     print_metrics(mc_metrics)
 
+    # ── PHASE 3b: Student-t Monte Carlo ───────────────────────
+    print_header("PHASE 3b — STUDENT-t MONTE CARLO (HEAVY TAILS)")
+
+    print("  Fitting Student-t degrees of freedom via MLE...")
+    df_t, loc_t, scale_t = fit_degrees_of_freedom(port_returns.values)
+    print(f"    Fitted ν = {df_t:.2f}  (lower ν → heavier tails)")
+    print(f"    Location = {loc_t:.6f}, Scale = {scale_t:.6f}")
+
+    print(f"    Running {NUM_SIMULATIONS:,} Student-t simulations...")
+    t_results = run_student_t_mc_engine(
+        mu, cov, weights, df_t, NUM_SIMULATIONS, RANDOM_SEED
+    )
+    t_metrics = {
+        "t_var_95": t_results["var_95"],
+        "t_var_99": t_results["var_99"],
+        "t_es_95": t_results["es_95"],
+        "t_es_99": t_results["es_99"],
+        "t_dof": df_t,
+    }
+    print("\n  ┌─ Student-t Monte Carlo Results ─────────────┐")
+    print_metrics(t_metrics)
+
     # ── PHASE 4: Backtesting ──────────────────────────────────
     print_header("PHASE 4 — ROLLING-WINDOW BACKTESTING")
 
@@ -249,30 +276,47 @@ def main() -> None:
     )
     print(f"  ✓ {p5}")
 
+    p6 = plot_gaussian_vs_student_t(
+        mc_results["portfolio_pnl"],
+        t_results["portfolio_pnl"],
+        mc_results["var_99"],
+        t_results["var_99"],
+        mc_results["es_99"],
+        t_results["es_99"],
+        df_t,
+        output_dir=fig_dir,
+    )
+    print(f"  ✓ {p6}")
+
     # ── Results Summary Table ─────────────────────────────────
     print_header("RESULTS COMPARISON TABLE")
 
     comparison = pd.DataFrame({
-        "Model": ["Historical", "Parametric", "Monte Carlo"],
+        "Model": ["Historical", "Parametric", "Monte Carlo (Gaussian)",
+                  f"Monte Carlo (Student-t, ν={df_t:.1f})"],
         "95% VaR": [
             hist_metrics["hist_var_95"],
             param_metrics["param_var_95"],
             mc_metrics["mc_var_95"],
+            t_metrics["t_var_95"],
         ],
         "99% VaR": [
             hist_metrics["hist_var_99"],
             param_metrics["param_var_99"],
             mc_metrics["mc_var_99"],
+            t_metrics["t_var_99"],
         ],
         "95% ES": [
             hist_metrics["hist_es_95"],
             param_metrics["param_es_95"],
             mc_metrics["mc_es_95"],
+            t_metrics["t_es_95"],
         ],
         "99% ES": [
             hist_metrics["hist_es_99"],
             param_metrics["param_es_99"],
             mc_metrics["mc_es_99"],
+            t_metrics["t_es_99"],
         ],
     })
 
@@ -293,6 +337,7 @@ def main() -> None:
         "historical": hist_metrics,
         "parametric": param_metrics,
         "monte_carlo": mc_metrics,
+        "student_t_mc": t_metrics,
         "backtesting": {
             "breach_stats": breach_stats,
             "kupiec_test": {k: v for k, v in kupiec.items()},
