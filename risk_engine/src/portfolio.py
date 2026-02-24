@@ -135,15 +135,30 @@ def define_weights(
     Raises
     ------
     ValueError
-        If weights do not sum to approximately 1.
+        If weights do not sum to approximately 1, or if any ticker in
+    `tickers` has no corresponding weight defined.
     """
     if custom_weights is None:
         custom_weights = DEFAULT_WEIGHTS
 
     if tickers is None:
-        tickers = list(custom_weights.keys())
+        # Sort alphabetically so the order matches yfinance column order
+        # (yfinance downloads always return columns in A→Z order)
+        tickers = sorted(custom_weights.keys())
 
-    weights = np.array([custom_weights[t] for t in tickers])
+    # pd.Series.reindex guarantees element-by-element alignment regardless
+    # of the insertion order of the source dict.  This is the ONLY safe way
+    # to build a weight vector for a DataFrame whose column order may differ
+    # from the order the dict was written in.
+    weight_series = pd.Series(custom_weights).reindex(tickers)
+
+    if weight_series.isna().any():
+        missing = weight_series[weight_series.isna()].index.tolist()
+        raise ValueError(
+            f"Weight alignment failed — no weight defined for tickers: {missing}"
+        )
+
+    weights = weight_series.values
 
     if not np.isclose(weights.sum(), 1.0, atol=1e-6):
         raise ValueError(

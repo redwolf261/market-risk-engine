@@ -38,14 +38,21 @@ This project implements both metrics across four model families—Historical, Pa
 
 | Model | 95% VaR | 99% VaR | 99% Expected Shortfall |
 |-------|---------|---------|------------------------|
-| Historical Simulation | 1.17% | 1.99% | 2.63% |
-| Parametric (Gaussian) | 1.20% | 1.72% | 1.98% |
-| Monte Carlo (Gaussian) | 1.20% | 1.73% | 1.96% |
-| **Monte Carlo (Student-t, ν=4.7)** | **1.16%** | **1.85%** | **2.37%** |
+| Historical Simulation | 1.29% | 2.17% | 2.90% |
+| Parametric (Gaussian) | 1.30% | 1.86% | 2.14% |
+| Monte Carlo (Gaussian) | 1.31% | 1.86% | 2.13% |
+| **Monte Carlo (Student-t, ν=4.6)** | **1.26%** | **2.02%** | **2.59%** |
 
-> *The Student-t MC produces higher 99% VaR (+7%) and dramatically higher 99% ES (+21%) compared to Gaussian MC — because it models the fat tails observed in real market data.*
+> *The Student-t MC produces higher 99% VaR (+9%) and dramatically higher 99% ES (+22%) compared to Gaussian MC — because it models the fat tails observed in real market data.*
 
-**Translation:** Under normal conditions, the portfolio's worst daily loss should stay below **~1.7–1.9%** on 99 out of 100 trading days. When losses do exceed that threshold, the Student-t model predicts an average tail loss of **2.37%** — significantly worse than the Gaussian estimate of 1.96%.
+> **Why is Student-t 95% VaR (1.26%) slightly *lower* than Gaussian (1.31%)?**  
+> This is a known and expected property of fat-tailed distributions at moderate confidence levels.  
+> A Student-t with ν ≈ 4.6 has heavier tails than the Gaussian, which means probability mass is redistributed *away* from the centre into the extreme regions.  
+> At the 95th percentile — still in the near-tail — this redistribution leaves slightly *less* mass beyond the threshold compared to the Gaussian, causing a marginally lower VaR.  
+> At the 99th percentile, where fat-tail effects fully dominate, the Student-t **correctly** produces higher VaR (+9%) and substantially higher ES (+22%).  
+> The crossover behaviour (lower at 95%, higher at 99%) is therefore a *feature* confirming the model is working as intended — not a bug.
+
+**Translation:** Under normal conditions, the portfolio's worst daily loss should stay below **~1.9–2.0%** on 99 out of 100 trading days. When losses do exceed that threshold, the Student-t model predicts an average tail loss of **2.59%** — significantly worse than the Gaussian estimate of 2.13%.
 
 ---
 
@@ -112,7 +119,7 @@ How do we know if the VaR model actually works?
 - Count **breaches** — days where actual loss > predicted VaR
 - At 99% confidence, expect ~1% breach rate
 
-**Our results:** 26 breaches out of 1,004 test days (2.6% breach rate vs 1% expected). The **Kupiec POF test** formally rejects the model (p < 0.001), confirming that the Gaussian VaR underestimates tail risk — precisely the motivation for the Student-t extension.
+**Our results (parametric backtest):** 30 breaches out of 1,004 test days (3.0% breach rate vs 1% expected). A parallel **Monte Carlo backtest** (10,000 simulations per step) validates the MC engine directly and produces consistent results. The **Kupiec POF test** formally rejects the Gaussian VaR model (p < 0.001), confirming that Gaussian assumptions underestimate tail risk — precisely the motivation for the Student-t extension.
 
 ### Step 4 — Stress Scenarios
 
@@ -120,10 +127,10 @@ What happens when markets go haywire?
 
 | Scenario | What Changes | 99% VaR Impact | 99% ES Impact |
 |----------|-------------|----------------|---------------|
-| **Volatility Doubling** | $\Sigma_{\text{shock}} = 2\Sigma$ | +43% | +42% |
-| **Correlation Collapse** | All $\rho_{ij} \to 0.9$ | +50% | +52% |
+| **Volatility Doubling** | $\Sigma_{\text{shock}} = 2\Sigma$ | +42% | +42% |
+| **Correlation Collapse** | All $\rho_{ij} \to 0.9$ | +40% | +41% |
 
-The correlation stress scenario is more severe — when all assets start moving together, diversification evaporates and tail risk amplifies by over 50%.
+The correlation stress scenario is severe — when all assets start moving together, diversification evaporates and tail risk amplifies by ~40%.
 
 ---
 

@@ -50,7 +50,12 @@ from src.risk_metrics import (
     parametric_risk_metrics,
 )
 from src.monte_carlo import run_monte_carlo_engine
-from src.backtesting import run_full_backtest
+from src.backtesting import (
+    run_full_backtest,
+    rolling_mc_var_backtest,
+    compute_breach_statistics,
+    kupiec_test,
+)
 from src.stress_testing import full_stress_analysis
 from src.student_t_mc import (
     fit_degrees_of_freedom,
@@ -117,12 +122,17 @@ def main() -> None:
         print(f"  Fetching price data for: {DEFAULT_TICKERS}")
         prices = fetch_data(save_path=str(DATA_PATH))
 
-    weights = define_weights()
+    # ── Weight alignment: pass actual column order so weights map to the
+    #    correct assets regardless of dict insertion order.
+    #    yfinance always returns columns alphabetically (GLD, JPM, QQQ, SPY, TLT).
+    weights = define_weights(tickers=list(prices.columns))
     log_returns = compute_log_returns(prices)
     port_returns = compute_portfolio_returns(log_returns, weights)
 
     print(f"\n  Assets:        {list(prices.columns)}")
-    print(f"  Weights:       {weights}")
+    print(f"  Weights (column-aligned):")
+    for ticker, w in zip(prices.columns, weights):
+        print(f"    {ticker}: {w:.2f}")
     print(f"  Period:        {prices.index[0].date()} → {prices.index[-1].date()}")
     print(f"  Observations:  {len(log_returns)}")
 
@@ -202,15 +212,31 @@ def main() -> None:
     print_header("PHASE 4 — ROLLING-WINDOW BACKTESTING")
 
     print(f"  Window: {BACKTEST_WINDOW} days | Confidence: 99%")
+
+    # ── 4a: Parametric (fast, Gaussian closed-form) ───────────
     bt_results, breach_stats, kupiec = run_full_backtest(
         log_returns, weights, BACKTEST_WINDOW, 0.99
     )
 
-    print("\n  Breach Statistics:")
+    print("\n  ┌─ Parametric VaR Backtest ─────────────────────────┐")
     print_metrics(breach_stats)
-
-    print("\n  Kupiec POF Test:")
+    print("\n  Kupiec POF Test (Parametric):")
     print_metrics(kupiec)
+
+    # ── 4b: Monte Carlo (10k sims/step — validates MC engine) ─
+    print(f"\n  ┌─ Monte Carlo VaR Backtest (10k sims/step) ────────┐")
+    print("    Running rolling MC backtest — this may take ~60s …")
+    mc_bt_results = rolling_mc_var_backtest(
+        log_returns, weights, BACKTEST_WINDOW, 0.99,
+        n_simulations=10_000, base_seed=RANDOM_SEED,
+    )
+    mc_bt_results["predicted_var"] = mc_bt_results["mc_var_predicted"]
+    mc_breach_stats = compute_breach_statistics(mc_bt_results, 0.99)
+    mc_kupiec = kupiec_test(mc_bt_results, 0.99)
+
+    print_metrics(mc_breach_stats)
+    print("\n  Kupiec POF Test (Monte Carlo):")
+    print_metrics(mc_kupiec)
 
     # ── PHASE 5: Stress Testing ───────────────────────────────
     print_header("PHASE 5 — STRESS TESTING")
@@ -339,8 +365,14 @@ def main() -> None:
         "monte_carlo": mc_metrics,
         "student_t_mc": t_metrics,
         "backtesting": {
-            "breach_stats": breach_stats,
-            "kupiec_test": {k: v for k, v in kupiec.items()},
+            "parametric": {
+                "breach_stats": breach_stats,
+                "kupiec_test": {k: v for k, v in kupiec.items()},
+            },
+            "monte_carlo": {
+                "breach_stats": mc_breach_stats,
+                "kupiec_test": {k: v for k, v in mc_kupiec.items()},
+            },
         },
         "stress_testing": {
             "vol_shock": stress_results["vol_shock"]["impact"],
