@@ -70,6 +70,17 @@ Five assets chosen to span asset classes — equities, fixed income, and commodi
 
 **Data:** 5 years of daily prices (2021–2025), ~1,254 trading days via Yahoo Finance.
 
+**Empirical distribution shape (portfolio returns):**
+
+| Metric | Value | Interpretation |
+|--------|-------|----------------|
+| Sharpe ratio | 0.83 | Risk-adjusted performance |
+| Sortino ratio | 1.16 | Higher — upside volatility not penalised |
+| Skewness | +0.29 | Mild positive skew |
+| **Excess kurtosis** | **7.49** | **Fat tails — 7.5× heavier than Gaussian** |
+
+The excess kurtosis of **7.49** is the quantitative justification for using a Student-t model. A Gaussian has excess kurtosis = 0; a value of 7.49 means the return distribution has dramatically fatter tails than any Gaussian can model — exactly the regime where Gaussian VaR fails.
+
 ---
 
 ## How It Works

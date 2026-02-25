@@ -36,6 +36,7 @@ from src.portfolio import (
     fetch_data,
     load_data,
     compute_log_returns,
+    compute_simple_returns,
     define_weights,
     compute_portfolio_returns,
     get_portfolio_summary,
