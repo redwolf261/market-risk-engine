@@ -147,7 +147,7 @@ The correlation stress scenario is severe — when all assets start moving toget
 
 ## Visualizations
 
-The engine generates 6 publication-quality charts:
+The engine generates 12 publication-quality charts:
 
 | Figure | What It Shows |
 |--------|---------------|
@@ -156,7 +156,13 @@ The engine generates 6 publication-quality charts:
 | `rolling_var_backtest.png` | 99% VaR forecast overlaid on actual daily losses, breaches highlighted in red |
 | `correlation_heatmap.png` | Cross-asset correlation structure |
 | `stress_comparison.png` | Side-by-side bar chart: baseline vs vol-shock vs correlation-stress |
-| `gaussian_vs_student_t.png` | **New:** Gaussian vs Student-t P&L overlay with tail zoom |
+| `gaussian_vs_student_t.png` | Gaussian vs Student-t P&L overlay with tail zoom — impact of heavy tails |
+| `portfolio_overview.png` | Portfolio weight pie + cumulative returns by asset vs portfolio |
+| `rolling_volatility.png` | 30-day rolling annualised volatility with high-regime shading |
+| `breach_calendar.png` | Month × year heatmap of VaR breach counts — clustering confirms IID assumption fails |
+| `model_comparison.png` | Grouped bars: all 4 models × 4 metrics (95%/99% VaR and ES) with value labels |
+| `var_vs_es.png` | **VaR vs ES side-by-side:** distribution with shaded tail + ES uplift bar chart showing the Basel III capital premium |
+| `sharpe_vs_sortino.png` | **Sharpe vs Sortino:** total vs downside vol breakdown + rolling 90-day comparison showing when the two diverge |
 
 All saved to `results/figures/`.
 
@@ -178,7 +184,7 @@ risk_engine/
 │   ├── risk_metrics.py             # Historical & Parametric VaR/ES
 │   ├── backtesting.py              # Rolling-window backtest + Kupiec test
 │   ├── stress_testing.py           # Vol shock + correlation stress
-│   └── visualization.py            # All chart generation (6 figures)
+│   └── visualization.py            # All chart generation (12 figures)
 │
 ├── notebooks/
 │   └── report.ipynb                # Interactive analysis report (executable docs)

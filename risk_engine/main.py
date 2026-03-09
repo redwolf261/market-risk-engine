@@ -73,6 +73,8 @@ from src.visualization import (
     plot_rolling_volatility,
     plot_breach_calendar,
     plot_model_comparison,
+    plot_var_vs_es,
+    plot_sharpe_vs_sortino,
 )
 
 warnings.filterwarnings("ignore")
@@ -338,6 +340,18 @@ def main() -> None:
         output_dir=fig_dir,
     )
     print(f"  ✓ {p10}")
+
+    p11 = plot_var_vs_es(
+        mc_results["portfolio_pnl"],
+        mc_metrics, t_metrics, df_t,
+        output_dir=fig_dir,
+    )
+    print(f"  ✓ {p11}")
+
+    p12 = plot_sharpe_vs_sortino(
+        port_returns, summary, window=90, output_dir=fig_dir
+    )
+    print(f"  ✓ {p12}")
 
     # ── Results Summary Table ─────────────────────────────────
     print_header("RESULTS COMPARISON TABLE")

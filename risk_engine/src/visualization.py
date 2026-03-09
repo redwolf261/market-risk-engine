@@ -788,3 +788,346 @@ def plot_model_comparison(
     fig.tight_layout()
 
     return save_figure(fig, "model_comparison", output_dir)
+
+
+# ─────────────────────────────────────────────────────────────
+# Chart 11: VaR vs ES — What VaR Misses
+# ─────────────────────────────────────────────────────────────
+
+def plot_var_vs_es(
+    mc_pnl: np.ndarray,
+    mc_metrics: dict,
+    t_metrics: dict,
+    df_t: float,
+    output_dir: str = "results/figures",
+) -> str:
+    """
+    Two-panel chart showing the conceptual gap between VaR and ES.
+
+    Left — P&L distribution with both VaR and ES lines marked and the
+    tail region shaded; shows *what VaR ignores* (the shaded area)
+    versus *what ES captures* (the average of that shaded area).
+
+    Right — "ES Uplift" bar chart: ES − VaR for Gaussian and Student-t
+    at 95% and 99% confidence.  This is the extra capital buffer that
+    Basel III requires over Basel II.  The Student-t bars are visibly
+    taller at 99%, showing how much fat tails inflate the uplift.
+
+    Parameters
+    ----------
+    mc_pnl : np.ndarray
+        100K simulated 1-day portfolio returns (Gaussian MC).
+    mc_metrics : dict
+        Keys: mc_var_95, mc_var_99, mc_es_95, mc_es_99.
+    t_metrics : dict
+        Keys: t_var_95, t_var_99, t_es_95, t_es_99.
+    df_t : float
+        Fitted Student-t degrees of freedom (for label).
+    output_dir : str
+        Output directory.
+
+    Returns
+    -------
+    str
+        Path to saved figure.
+    """
+    losses = -mc_pnl  # positive = loss
+
+    fig, (ax_dist, ax_uplift) = plt.subplots(1, 2, figsize=(18, 7))
+
+    # ── Left: distribution with VaR and ES markers ───────────
+    ax_dist.hist(
+        losses, bins=120, color=COLORS["primary"],
+        alpha=0.55, edgecolor="none", density=True,
+        label="MC P&L Distribution",
+    )
+
+    # Shade the region beyond 99% VaR (what VaR leaves uncovered)
+    var99_g = mc_metrics["mc_var_99"]
+    es99_g  = mc_metrics["mc_es_99"]
+    tail_mask = losses >= var99_g
+    if tail_mask.sum() > 0:
+        hist_vals, bin_edges = np.histogram(
+            losses[tail_mask], bins=60, density=True,
+        )
+        # Scale density back to match the main histogram
+        scale = tail_mask.mean()
+        for i in range(len(hist_vals)):
+            ax_dist.fill_betweenx(
+                [0, hist_vals[i] * scale],
+                bin_edges[i], bin_edges[i + 1],
+                color=COLORS["breach"], alpha=0.55,
+            )
+    # Invisible proxy patch for legend
+    ax_dist.fill_between(
+        [], [], color=COLORS["breach"], alpha=0.55,
+        label="Tail VaR ignores (but ES captures)",
+    )
+
+    # VaR lines
+    ax_dist.axvline(
+        mc_metrics["mc_var_95"], color=COLORS["var_95"],
+        linewidth=2, linestyle="--", label="95% VaR",
+    )
+    ax_dist.axvline(
+        var99_g, color=COLORS["var_99"],
+        linewidth=2, linestyle="--", label="99% VaR",
+    )
+    # ES lines (solid — represents the conditional average)
+    ax_dist.axvline(
+        mc_metrics["mc_es_95"], color=COLORS["var_95"],
+        linewidth=2, linestyle="-", label="95% ES (CVaR)",
+    )
+    ax_dist.axvline(
+        es99_g, color=COLORS["var_99"],
+        linewidth=2, linestyle="-", label="99% ES (CVaR)",
+    )
+
+    # Annotations
+    y_arrow = ax_dist.get_ylim()[1] * 0.6 if ax_dist.get_ylim()[1] != 1 else 30
+    ax_dist.annotate(
+        "← VaR sets\n   threshold",
+        xy=(var99_g, 0), xytext=(var99_g - 0.008, y_arrow * 0.5),
+        fontsize=9, color=COLORS["var_99"],
+        arrowprops=dict(arrowstyle="->", color=COLORS["var_99"]),
+    )
+    ax_dist.annotate(
+        "ES = average\nloss here →",
+        xy=(es99_g, 0), xytext=(es99_g + 0.001, y_arrow * 0.5),
+        fontsize=9, color=COLORS["var_99"],
+        arrowprops=dict(arrowstyle="->", color=COLORS["var_99"]),
+    )
+
+    ax_dist.set_xlabel("1-Day Portfolio Loss", fontsize=12)
+    ax_dist.set_ylabel("Density", fontsize=12)
+    ax_dist.set_xlim(left=-0.04)
+    ax_dist.xaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    ax_dist.set_title(
+        "VaR = Loss Threshold  |  ES = Average Loss Beyond That Threshold\n"
+        "Basel III switched from VaR to ES for exactly this reason",
+        fontsize=11, fontweight="bold",
+    )
+    ax_dist.legend(fontsize=9.5)
+
+    # ── Right: ES uplift (ES - VaR) per model and confidence ─
+    labels = ["95%\nGaussian", "99%\nGaussian",
+              f"95%\nStudent-t\nν={df_t:.1f}", f"99%\nStudent-t\nν={df_t:.1f}"]
+    uplift = [
+        mc_metrics["mc_es_95"] - mc_metrics["mc_var_95"],
+        mc_metrics["mc_es_99"] - mc_metrics["mc_var_99"],
+        t_metrics["t_es_95"]   - t_metrics["t_var_95"],
+        t_metrics["t_es_99"]   - t_metrics["t_var_99"],
+    ]
+    bar_cols = [
+        COLORS["var_95"], COLORS["var_99"],
+        COLORS["var_95"], COLORS["var_99"],
+    ]
+    hatches = ["", "", "///", "///"]
+
+    bars = ax_uplift.bar(
+        labels, uplift, color=bar_cols, alpha=0.82,
+        edgecolor="white", linewidth=1.2,
+    )
+    for bar, hatch in zip(bars, hatches):
+        bar.set_hatch(hatch)
+
+    # Value labels
+    for bar in bars:
+        h = bar.get_height()
+        ax_uplift.text(
+            bar.get_x() + bar.get_width() / 2,
+            h + 0.0001,
+            f"+{h*100:.2f}%",
+            ha="center", va="bottom", fontsize=10, fontweight="bold",
+        )
+
+    ax_uplift.set_ylabel("ES − VaR  (Extra Capital Buffer, %)", fontsize=12)
+    ax_uplift.set_title(
+        "ES Uplift Over VaR — The Basel III Capital Premium\n"
+        "Student-t uplift at 99% is larger because of fat tails",
+        fontsize=11, fontweight="bold",
+    )
+    ax_uplift.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+
+    # Legend patches for model type
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor="grey", alpha=0.7, label="Gaussian MC"),
+        Patch(facecolor="grey", alpha=0.7, hatch="///", label=f"Student-t MC (ν={df_t:.1f})"),
+    ]
+    ax_uplift.legend(handles=legend_elements, fontsize=10)
+
+    fig.suptitle(
+        "VaR vs Expected Shortfall — What the Threshold Misses",
+        fontsize=14, fontweight="bold", y=1.02,
+    )
+    fig.tight_layout()
+
+    return save_figure(fig, "var_vs_es", output_dir)
+
+
+# ─────────────────────────────────────────────────────────────
+# Chart 12: Sharpe vs Sortino — Upside vs Downside Volatility
+# ─────────────────────────────────────────────────────────────
+
+def plot_sharpe_vs_sortino(
+    portfolio_returns: pd.Series,
+    summary: dict,
+    window: int = 90,
+    output_dir: str = "results/figures",
+) -> str:
+    """
+    Two-panel comparison of Sharpe and Sortino ratios.
+
+    Left — Static breakdown: annualised total volatility vs downside
+    volatility side by side, with the resulting ratio printed on each
+    bar.  Makes immediately clear why Sortino > Sharpe: this portfolio's
+    volatility is disproportionately on the *upside*, so penalising all
+    volatility (Sharpe) is unfair to the portfolio.
+
+    Right — Rolling {window}-day Sharpe vs Sortino through time.
+    The gap between the two lines widens during rallies (upside vol
+    dominates) and narrows during drawdowns (downside vol dominates).
+    When Sortino >> Sharpe, the portfolio is rewarding investors well
+    *without* generating harmful downside risk.
+
+    Parameters
+    ----------
+    portfolio_returns : pd.Series
+        Daily log portfolio returns.
+    summary : dict
+        Output of get_portfolio_summary() — provides full-sample metrics.
+    window : int
+        Rolling window in trading days (default 90).
+    output_dir : str
+        Output directory.
+
+    Returns
+    -------
+    str
+        Path to saved figure.
+    """
+    ann_factor = np.sqrt(252)
+    ret = portfolio_returns.dropna()
+
+    # ── Rolling Sharpe & Sortino ─────────────────────────────
+    roll_mean  = ret.rolling(window).mean() * 252
+    roll_std   = ret.rolling(window).std()  * ann_factor
+
+    downside   = ret.copy()
+    downside[downside > 0] = 0.0
+    roll_d_std = downside.rolling(window).apply(
+        lambda x: np.std(x[x < 0]) * ann_factor if (x < 0).sum() > 1 else np.nan,
+        raw=True,
+    )
+
+    roll_sharpe  = roll_mean / roll_std
+    roll_sortino = roll_mean / roll_d_std
+
+    fig, (ax_bar, ax_roll) = plt.subplots(1, 2, figsize=(18, 7))
+
+    # ── Left: Static vol breakdown + ratio labels ─────────────
+    full_vol     = summary["annualized_volatility"]   * 100
+    down_vol     = summary["annualized_downside_vol"] * 100
+    upside_vol   = full_vol - down_vol                        # implied
+
+    categories   = ["Total\nVolatility", "Downside\nVolatility"]
+    vol_vals     = [full_vol, down_vol]
+    bar_c        = [COLORS["primary"], COLORS["breach"]]
+    ratios       = [summary["sharpe_ratio"], summary["sortino_ratio"]]
+    ratio_labels = ["Sharpe", "Sortino"]
+
+    bars = ax_bar.bar(
+        categories, vol_vals, color=bar_c,
+        alpha=0.80, width=0.45, edgecolor="white", linewidth=1.5,
+    )
+
+    for bar, vol, ratio, rl in zip(bars, vol_vals, ratios, ratio_labels):
+        ax_bar.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.2,
+            f"{vol:.1f}%",
+            ha="center", va="bottom", fontsize=12, fontweight="bold",
+        )
+        ax_bar.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() / 2,
+            f"{rl} = {ratio:.2f}",
+            ha="center", va="center", fontsize=13,
+            fontweight="bold", color="white",
+        )
+
+    # Annotate the upside component
+    ax_bar.annotate(
+        f"Upside vol\n= {upside_vol:.1f}%\n(Sortino ignores this)",
+        xy=(0, down_vol), xytext=(0.55, full_vol * 0.85),
+        fontsize=9.5, color="dimgrey",
+        arrowprops=dict(arrowstyle="->", color="dimgrey", lw=1.2),
+    )
+
+    ax_bar.set_ylabel("Annualised Volatility (%)", fontsize=12)
+    ax_bar.set_title(
+        "Total vs Downside Volatility\nSortino ignores upside vol → higher ratio",
+        fontsize=12, fontweight="bold",
+    )
+    ax_bar.set_ylim(0, full_vol * 1.35)
+    ax_bar.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=1))
+
+    # ── Right: Rolling Sharpe vs Sortino ─────────────────────
+    idx = ret.index
+
+    ax_roll.plot(
+        idx, roll_sharpe,
+        color=COLORS["primary"], linewidth=1.8,
+        label=f"{window}-Day Rolling Sharpe",
+    )
+    ax_roll.plot(
+        idx, roll_sortino,
+        color=COLORS["safe"], linewidth=1.8,
+        label=f"{window}-Day Rolling Sortino",
+    )
+
+    ax_roll.fill_between(
+        idx,
+        roll_sharpe.values, roll_sortino.values,
+        where=(roll_sortino.values > roll_sharpe.values),
+        alpha=0.18, color=COLORS["safe"],
+        label="Gap = upside vol (Sortino advantage)",
+    )
+    ax_roll.fill_between(
+        idx,
+        roll_sharpe.values, roll_sortino.values,
+        where=(roll_sortino.values <= roll_sharpe.values),
+        alpha=0.25, color=COLORS["breach"],
+        label="Gap inverted = elevated downside risk",
+    )
+
+    ax_roll.axhline(0, color="black", linewidth=0.8, linestyle=":")
+    ax_roll.axhline(
+        summary["sharpe_ratio"], color=COLORS["primary"],
+        linewidth=1.2, linestyle="--", alpha=0.6,
+        label=f"Full-sample Sharpe = {summary['sharpe_ratio']:.2f}",
+    )
+    ax_roll.axhline(
+        summary["sortino_ratio"], color=COLORS["safe"],
+        linewidth=1.2, linestyle="--", alpha=0.6,
+        label=f"Full-sample Sortino = {summary['sortino_ratio']:.2f}",
+    )
+
+    ax_roll.set_xlabel("Date", fontsize=12)
+    ax_roll.set_ylabel("Risk-Adjusted Return Ratio", fontsize=12)
+    ax_roll.set_title(
+        f"Rolling {window}-Day Sharpe vs Sortino\n"
+        "Green gap = volatility is mostly gains; red gap = drawdown stress",
+        fontsize=12, fontweight="bold",
+    )
+    ax_roll.legend(fontsize=9.5, ncol=2)
+    fig.autofmt_xdate()
+
+    fig.suptitle(
+        "Sharpe vs Sortino Ratio — Why Penalising All Volatility Understates Performance",
+        fontsize=14, fontweight="bold", y=1.02,
+    )
+    fig.tight_layout()
+
+    return save_figure(fig, "sharpe_vs_sortino", output_dir)
