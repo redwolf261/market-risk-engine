@@ -9,6 +9,11 @@ Generated Figures:
     3. Rolling VaR vs Actual Losses
     4. Correlation Heatmap
     5. Stress Test Comparison
+    6. Gaussian vs Student-t Overlay
+    7. Portfolio Overview (pie + cumulative return)
+    8. Rolling 30-Day Volatility with Regime Annotations
+    9. Breach Calendar Heatmap (month × year grid)
+   10. Four-Model VaR Comparison (bar chart)
 """
 
 import numpy as np
@@ -416,3 +421,370 @@ def plot_gaussian_vs_student_t(
     fig.tight_layout()
 
     return save_figure(fig, "gaussian_vs_student_t", output_dir)
+
+
+# ─────────────────────────────────────────────────────────────
+# Chart 7: Portfolio Overview
+# ─────────────────────────────────────────────────────────────
+
+def plot_portfolio_overview(
+    prices: pd.DataFrame,
+    weights: np.ndarray,
+    output_dir: str = "results/figures",
+) -> str:
+    """
+    Two-panel overview: portfolio weights pie + cumulative return by asset.
+
+    Shows what is inside the portfolio and how each component has
+    contributed to performance over the full data window.
+
+    Parameters
+    ----------
+    prices : pd.DataFrame
+        Asset price history (T × N), columns = tickers.
+    weights : np.ndarray
+        Portfolio weight vector aligned with prices.columns.
+    output_dir : str
+        Output directory.
+
+    Returns
+    -------
+    str
+        Path to saved figure.
+    """
+    tickers = list(prices.columns)
+
+    fig, (ax_pie, ax_ret) = plt.subplots(
+        1, 2, figsize=(18, 7),
+        gridspec_kw={"width_ratios": [1, 1.8]},
+    )
+
+    # ── Left: Pie chart of weights ───────────────────────────
+    palette = plt.cm.tab10.colors
+    wedge_colors = [palette[i] for i in range(len(tickers))]
+
+    wedges, texts, autotexts = ax_pie.pie(
+        weights,
+        labels=tickers,
+        autopct="%1.0f%%",
+        startangle=90,
+        colors=wedge_colors,
+        wedgeprops={"linewidth": 1.5, "edgecolor": "white"},
+        textprops={"fontsize": 12},
+        pctdistance=0.75,
+    )
+    for at in autotexts:
+        at.set_fontsize(11)
+        at.set_fontweight("bold")
+
+    ax_pie.set_title(
+        "Portfolio Allocation",
+        fontsize=13, fontweight="bold", pad=15,
+    )
+
+    # ── Right: Cumulative returns per asset + portfolio ──────
+    cumret = (prices / prices.iloc[0] - 1) * 100  # in %
+
+    for i, ticker in enumerate(tickers):
+        ax_ret.plot(
+            prices.index, cumret[ticker],
+            color=wedge_colors[i], linewidth=1.5,
+            alpha=0.85, label=ticker,
+        )
+
+    # Portfolio cumulative return
+    log_ret = np.log(prices / prices.shift(1)).dropna()
+    port_daily = log_ret.values @ weights
+    port_cum = (np.exp(np.cumsum(port_daily)) - 1) * 100
+    ax_ret.plot(
+        prices.index[1:], port_cum,
+        color="black", linewidth=2.5, linestyle="--",
+        label="Portfolio", zorder=10,
+    )
+
+    ax_ret.axhline(0, color="gray", linewidth=0.8, linestyle=":")
+    ax_ret.set_xlabel("Date", fontsize=12)
+    ax_ret.set_ylabel("Cumulative Return (%)", fontsize=12)
+    ax_ret.set_title(
+        "Cumulative Returns — Individual Assets vs Portfolio",
+        fontsize=13, fontweight="bold",
+    )
+    ax_ret.legend(fontsize=10, ncol=2)
+    ax_ret.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+    fig.autofmt_xdate()
+    fig.tight_layout()
+
+    return save_figure(fig, "portfolio_overview", output_dir)
+
+
+# ─────────────────────────────────────────────────────────────
+# Chart 8: Rolling 30-Day Volatility
+# ─────────────────────────────────────────────────────────────
+
+def plot_rolling_volatility(
+    portfolio_returns: pd.Series,
+    window: int = 30,
+    ann_vol: float = None,
+    output_dir: str = "results/figures",
+) -> str:
+    """
+    Rolling annualised volatility of portfolio returns with shading.
+
+    Time-varying volatility is visible here — the clustering of high-vol
+    periods (2022 rate shock, 2025 drawdown) motivates GARCH-style
+    dynamic risk models over a constant-covariance assumption.
+
+    Parameters
+    ----------
+    portfolio_returns : pd.Series
+        Daily log portfolio returns.
+    window : int
+        Rolling window in trading days (default 30).
+    ann_vol : float, optional
+        Full-sample annualised volatility for reference line.
+    output_dir : str
+        Output directory.
+
+    Returns
+    -------
+    str
+        Path to saved figure.
+    """
+    roll_std = portfolio_returns.rolling(window).std() * np.sqrt(252) * 100
+    roll_std = roll_std.dropna()
+
+    fig, ax = plt.subplots(figsize=(16, 6))
+
+    ax.fill_between(
+        roll_std.index, roll_std.values,
+        alpha=0.35, color=COLORS["primary"],
+    )
+    ax.plot(
+        roll_std.index, roll_std.values,
+        color=COLORS["primary"], linewidth=1.5,
+        label=f"{window}-Day Rolling Volatility",
+    )
+
+    if ann_vol is not None:
+        ax.axhline(
+            ann_vol * 100, color=COLORS["var_99"],
+            linewidth=1.5, linestyle="--",
+            label=f"Full-Sample Vol = {ann_vol*100:.1f}%",
+        )
+
+    # Shade the top-quartile vol periods in red
+    q75 = np.percentile(roll_std.values, 75)
+    ax.fill_between(
+        roll_std.index,
+        roll_std.values,
+        where=roll_std.values >= q75,
+        alpha=0.45, color=COLORS["breach"],
+        label="High-Volatility Regime (top quartile)",
+    )
+
+    ax.set_xlabel("Date", fontsize=12)
+    ax.set_ylabel("Annualised Volatility (%)", fontsize=12)
+    ax.set_title(
+        f"Portfolio Rolling {window}-Day Volatility — Volatility Clustering Visible",
+        fontsize=14, fontweight="bold",
+    )
+    ax.legend(fontsize=11)
+    ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=1))
+    fig.autofmt_xdate()
+    fig.tight_layout()
+
+    return save_figure(fig, "rolling_volatility", output_dir)
+
+
+# ─────────────────────────────────────────────────────────────
+# Chart 9: Breach Calendar Heatmap
+# ─────────────────────────────────────────────────────────────
+
+def plot_breach_calendar(
+    backtest_results: pd.DataFrame,
+    output_dir: str = "results/figures",
+) -> str:
+    """
+    Calendar heatmap showing monthly VaR breach counts.
+
+    Each cell = one calendar month.  Colour intensity = number of days
+    that month where actual loss exceeded the 99% VaR forecast.
+    Zero-breach months are white; high-breach months are deep red.
+
+    This single chart makes it obvious that breaches cluster in
+    crisis periods rather than being uniformly distributed —
+    proving that the IID Gaussian assumption fails in practice.
+
+    Parameters
+    ----------
+    backtest_results : pd.DataFrame
+        Output from rolling_var_backtest / run_full_backtest.
+        Must include columns: date, breach.
+    output_dir : str
+        Output directory.
+
+    Returns
+    -------
+    str
+        Path to saved figure.
+    """
+    df = backtest_results.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df["year"] = df["date"].dt.year
+    df["month"] = df["date"].dt.month
+
+    pivot = (
+        df.groupby(["year", "month"])["breach"]
+        .sum()
+        .unstack(fill_value=0)
+    )
+
+    # Ensure all 12 months are present
+    for m in range(1, 13):
+        if m not in pivot.columns:
+            pivot[m] = 0
+    pivot = pivot.sort_index(axis=1)
+
+    month_labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    fig, ax = plt.subplots(figsize=(14, max(3, len(pivot) * 1.2)))
+
+    sns.heatmap(
+        pivot,
+        annot=True,
+        fmt="d",
+        cmap="YlOrRd",
+        linewidths=0.5,
+        linecolor="white",
+        xticklabels=month_labels,
+        yticklabels=[str(y) for y in pivot.index],
+        cbar_kws={"label": "Breach Count", "shrink": 0.6},
+        ax=ax,
+    )
+
+    ax.set_xlabel("Month", fontsize=12)
+    ax.set_ylabel("Year", fontsize=12)
+    ax.set_title(
+        "VaR Breach Calendar — Monthly Breach Counts at 99% Confidence\n"
+        "Clustering = Gaussian IID Assumption Fails",
+        fontsize=13, fontweight="bold",
+    )
+    fig.tight_layout()
+
+    return save_figure(fig, "breach_calendar", output_dir)
+
+
+# ─────────────────────────────────────────────────────────────
+# Chart 10: Four-Model VaR/ES Comparison
+# ─────────────────────────────────────────────────────────────
+
+def plot_model_comparison(
+    hist_metrics: dict,
+    param_metrics: dict,
+    mc_metrics: dict,
+    t_metrics: dict,
+    df_t: float,
+    output_dir: str = "results/figures",
+) -> str:
+    """
+    Grouped bar chart comparing all four risk models across all metrics.
+
+    Lets the reader immediately see:
+      - How close Parametric and MC (Gaussian) are (model consistency)
+      - How much Student-t diverges at 99% vs 95% (fat-tail effect)
+      - Where Historical simulation differs (non-parametric benchmark)
+
+    Parameters
+    ----------
+    hist_metrics : dict
+        Historical VaR/ES (keys: hist_var_95, hist_var_99, etc.)
+    param_metrics : dict
+        Parametric Gaussian metrics.
+    mc_metrics : dict
+        Monte Carlo Gaussian metrics.
+    t_metrics : dict
+        Student-t MC metrics.
+    df_t : float
+        Fitted degrees of freedom (for chart label).
+    output_dir : str
+        Output directory.
+
+    Returns
+    -------
+    str
+        Path to saved figure.
+    """
+    models = [
+        "Historical",
+        "Parametric\n(Gaussian)",
+        "MC\n(Gaussian)",
+        f"MC\n(Student-t\nν={df_t:.1f})",
+    ]
+
+    var95 = [
+        hist_metrics["hist_var_95"],
+        param_metrics["param_var_95"],
+        mc_metrics["mc_var_95"],
+        t_metrics["t_var_95"],
+    ]
+    var99 = [
+        hist_metrics["hist_var_99"],
+        param_metrics["param_var_99"],
+        mc_metrics["mc_var_99"],
+        t_metrics["t_var_99"],
+    ]
+    es95 = [
+        hist_metrics["hist_es_95"],
+        param_metrics["param_es_95"],
+        mc_metrics["mc_es_95"],
+        t_metrics["t_es_95"],
+    ]
+    es99 = [
+        hist_metrics["hist_es_99"],
+        param_metrics["param_es_99"],
+        mc_metrics["mc_es_99"],
+        t_metrics["t_es_99"],
+    ]
+
+    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+    x = np.arange(len(models))
+    width = 0.38
+
+    bar_colors = [COLORS["var_95"], COLORS["var_99"]]
+    for ax, (vals_a, vals_b, label_a, label_b, title) in zip(
+        axes,
+        [
+            (var95, var99, "95% VaR", "99% VaR", "Value at Risk — 1-Day Horizon"),
+            (es95, es99, "95% ES (CVaR)", "99% ES (CVaR)", "Expected Shortfall — 1-Day Horizon"),
+        ],
+    ):
+        bars_a = ax.bar(x - width / 2, vals_a, width,
+                        label=label_a, color=bar_colors[0], alpha=0.85)
+        bars_b = ax.bar(x + width / 2, vals_b, width,
+                        label=label_b, color=bar_colors[1], alpha=0.85)
+
+        # Value labels on top of each bar
+        for bar in list(bars_a) + list(bars_b):
+            h = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                h + 0.0003,
+                f"{h*100:.2f}%",
+                ha="center", va="bottom", fontsize=8.5, fontweight="bold",
+            )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(models, fontsize=10)
+        ax.set_ylabel("Portfolio Loss (%)", fontsize=12)
+        ax.set_title(title, fontsize=13, fontweight="bold")
+        ax.legend(fontsize=11)
+        ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+
+    fig.suptitle(
+        "Risk Model Comparison — Four Approaches to Measuring Tail Risk",
+        fontsize=14, fontweight="bold", y=1.02,
+    )
+    fig.tight_layout()
+
+    return save_figure(fig, "model_comparison", output_dir)

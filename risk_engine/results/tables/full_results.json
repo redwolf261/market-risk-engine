@@ -20,7 +20,7 @@
       "sharpe_ratio": 0.8320685954501701,
       "annualized_downside_vol": 0.09292328087814813,
       "sortino_ratio": 1.1637764369143746,
-      "skewness": 0.28768300607444813,
+      "skewness": 0.2876830060744483,
       "excess_kurtosis": 7.49235299626511,
       "num_observations": 1254
     }

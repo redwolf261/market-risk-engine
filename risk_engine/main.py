@@ -69,6 +69,10 @@ from src.visualization import (
     plot_correlation_heatmap,
     plot_stress_comparison,
     plot_gaussian_vs_student_t,
+    plot_portfolio_overview,
+    plot_rolling_volatility,
+    plot_breach_calendar,
+    plot_model_comparison,
 )
 
 warnings.filterwarnings("ignore")
@@ -314,6 +318,26 @@ def main() -> None:
         output_dir=fig_dir,
     )
     print(f"  ✓ {p6}")
+
+    p7 = plot_portfolio_overview(prices, weights, output_dir=fig_dir)
+    print(f"  ✓ {p7}")
+
+    p8 = plot_rolling_volatility(
+        port_returns,
+        window=30,
+        ann_vol=summary["annualized_volatility"],
+        output_dir=fig_dir,
+    )
+    print(f"  ✓ {p8}")
+
+    p9 = plot_breach_calendar(bt_results, output_dir=fig_dir)
+    print(f"  ✓ {p9}")
+
+    p10 = plot_model_comparison(
+        hist_metrics, param_metrics, mc_metrics, t_metrics, df_t,
+        output_dir=fig_dir,
+    )
+    print(f"  ✓ {p10}")
 
     # ── Results Summary Table ─────────────────────────────────
     print_header("RESULTS COMPARISON TABLE")
