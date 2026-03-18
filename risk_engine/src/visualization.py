@@ -4,16 +4,18 @@ Visualization Module
 Produces professional static charts for risk analysis reporting.
 
 Generated Figures:
-    1. Monte Carlo P&L Distribution (Histogram)
-    2. Left-Tail Zoom with VaR/ES Lines
-    3. Rolling VaR vs Actual Losses
-    4. Correlation Heatmap
-    5. Stress Test Comparison
-    6. Gaussian vs Student-t Overlay
-    7. Portfolio Overview (pie + cumulative return)
-    8. Rolling 30-Day Volatility with Regime Annotations
-    9. Breach Calendar Heatmap (month × year grid)
-   10. Four-Model VaR Comparison (bar chart)
+    1.  Monte Carlo P&L Distribution (Histogram)
+    2.  Left-Tail Zoom with VaR/ES Lines
+    3.  Rolling VaR vs Actual Losses (Backtest)
+    4.  Correlation Heatmap
+    5.  Stress Test Comparison
+    6.  Gaussian vs Student-t Overlay
+    7.  Portfolio Overview (weight pie + cumulative returns)
+    8.  Rolling 30-Day Volatility with Regime Annotations
+    9.  Breach Calendar Heatmap (month × year grid)
+   10.  Four-Model VaR/ES Comparison (grouped bar chart)
+   11.  VaR vs ES Side-by-Side (distribution + ES uplift bars)
+   12.  Sharpe vs Sortino (vol breakdown + rolling ratio comparison)
 """
 
 import numpy as np
@@ -226,7 +228,7 @@ def plot_rolling_var_vs_losses(
 
 def plot_correlation_heatmap(
     corr_matrix: np.ndarray,
-    labels: list,
+    labels: list[str],
     output_dir: str = "results/figures",
 ) -> str:
     """
